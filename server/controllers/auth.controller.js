@@ -1,5 +1,9 @@
 const User = require("../models/user.model");
-const { generateAccessToken, generateRefreshToken } = require("../utils/token");
+const {
+  generateAccessToken,
+  generateRefreshToken,
+  verifyRefreshToken,
+} = require("../utils/token");
 
 // Signup stays the same...
 exports.signup = async (req, res) => {
@@ -84,6 +88,85 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error("Login error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// @desc    Refresh access token
+// @route   POST /api/auth/refresh
+exports.refresh = async (req, res) => {
+  try {
+    // Get refresh token from cookie
+    const { refreshToken } = req.cookies;
+
+    if (!refreshToken) {
+      return res.status(401).json({ message: "No refresh token provided" });
+    }
+
+    // Verify refresh token
+    const decoded = verifyRefreshToken(refreshToken);
+    if (!decoded) {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
+    // Find user and verify token matches stored token
+    const user = await User.findById(decoded.userId);
+    if (!user || user.refreshToken !== refreshToken) {
+      return res.status(401).json({ message: "Invalid refresh token" });
+    }
+
+    // Generate NEW tokens (rotation)
+    const newAccessToken = generateAccessToken(user._id);
+    const newRefreshToken = generateRefreshToken(user._id);
+
+    // Update stored refresh token
+    user.refreshToken = newRefreshToken;
+    await user.save();
+
+    // Send new refresh token as cookie
+    res.cookie("refreshToken", newRefreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
+
+    // Send new access token
+    res.json({
+      accessToken: newAccessToken,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (error) {
+    console.error("Refresh token error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// @desc    Logout user
+// @route   POST /api/auth/logout
+exports.logout = async (req, res) => {
+  try {
+    const { refreshToken } = req.cookies;
+
+    if (refreshToken) {
+      // Find user and clear refresh token
+      await User.findOneAndUpdate({ refreshToken }, { refreshToken: null });
+    }
+
+    // Clear cookie
+    res.clearCookie("refreshToken", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+    });
+
+    res.json({ message: "Logged out successfully" });
+  } catch (error) {
+    console.error("Logout error:", error);
     res.status(500).json({ message: "Server error" });
   }
 };
