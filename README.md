@@ -6,6 +6,8 @@ A secure authentication system built with Node.js, Express, and MongoDB. This ba
 
 - **User Registration** - Sign up with email and password
 - **User Login** - Authenticate users and issue JWT tokens
+- **Token Refresh** - Refresh access tokens with token rotation
+- **User Logout** - Logout users and invalidate refresh tokens
 - **JWT Authentication** - Secure API endpoints with access and refresh tokens
 - **User Profile** - Get and update user profile information
 - **Password Hashing** - Passwords encrypted with bcrypt
@@ -116,6 +118,35 @@ Response: 200 OK
 }
 ```
 
+#### Refresh Access Token
+
+```
+POST /api/auth/refresh
+Cookie: refreshToken=<refreshToken>
+
+Response: 200 OK
+{
+  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
+  "user": {
+    "id": "...",
+    "email": "user@example.com",
+    "role": "user"
+  }
+}
+```
+
+#### Logout User
+
+```
+POST /api/auth/logout
+Cookie: refreshToken=<refreshToken>
+
+Response: 200 OK
+{
+  "message": "Logged out successfully"
+}
+```
+
 ### User Routes (Protected)
 
 All user routes require the `Authorization: Bearer <accessToken>` header.
@@ -193,18 +224,40 @@ server/
 ## 🛡️ Security Best Practices
 
 - Passwords are hashed with bcrypt (10 salt rounds)
-- Access tokens expire after 15 minutes
-- Refresh tokens expire after 7 days
-- Environment variables stored in `.env` (not committed to git)
-- Passwords never returned in API responses
-- Input validation on all endpoints
-- Error messages don't leak sensitive information
+- AcceToken Management
 
-## 📝 Environment Variables
+### Refresh Token Flow
 
-| Variable               | Description                   | Example             |
-| ---------------------- | ----------------------------- | ------------------- |
-| `PORT`                 | Server port                   | `5000`              |
+When access token expires, use the refresh token to get a new access token:
+
+```
+POST /api/auth/refresh
+Cookie: refreshToken=<refreshToken>
+
+Response: 200 OK
+{
+  "accessToken": "new_token_...",
+  "user": {
+    "id": "...",
+    "email": "user@example.com",
+    "role": "user"
+  }
+}
+```
+
+**Token Rotation**: A new refresh token is issued with each refresh request, and the old token is invalidated for security.
+
+### Logout Flow
+
+When logging out, the refresh token is cleared and invalidated:
+
+```
+POST /api/auth/logout
+Cookie: refreshToken=<refreshToken>
+
+Response: 200 OK
+{
+  "message": "Logged outrver port                   | `5000`              |
 | `NODE_ENV`             | Environment mode              | `development`       |
 | `MONGO_URI`            | MongoDB connection string     | `mongodb+srv://...` |
 | `ACCESS_TOKEN_SECRET`  | Secret key for access tokens  | Random string       |
@@ -227,15 +280,17 @@ The API returns appropriate HTTP status codes:
 When access token expires:
 
 ```
+
 POST /api/auth/refresh
 Authorization: Bearer <refreshToken>
 
 Response: 200 OK
 {
-  "accessToken": "new_token_...",
-  "message": "Token refreshed successfully"
+"accessToken": "new*token*...",
+"message": "Token refreshed successfully"
 }
-```
+
+````
 
 ## 💡 Usage Example (Frontend)
 
@@ -255,15 +310,11 @@ const profileResponse = await fetch("http://localhost:5000/api/user/profile", {
   headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
 });
 const profile = await profileResponse.json();
-```
+````
 
 ## 📄 License
 
 This project is open source and available under the MIT License.
-
-## 👤 Author
-
-Created by Arnav
 
 ## 📞 Support
 
