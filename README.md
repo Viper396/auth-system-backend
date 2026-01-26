@@ -1,53 +1,48 @@
 # Auth System Backend
 
-A secure authentication system built with Node.js, Express, and MongoDB. This backend handles user registration, login, and profile management using JWT tokens.
+A secure authentication system I built using Node.js, Express, and MongoDB. It handles everything from user registration to login and profile management using JWT tokens.
 
-## 🚀 Features
+## What It Does
 
-- **User Registration** - Sign up with email and password
-- **User Login** - Authenticate users and issue JWT tokens
-- **Token Refresh** - Refresh access tokens with token rotation
-- **User Logout** - Logout users and invalidate refresh tokens
-- **JWT Authentication** - Secure API endpoints with access and refresh tokens
-- **User Profile** - Get and update user profile information
-- **Password Hashing** - Passwords encrypted with bcrypt
-- **Token Management** - Short-lived access tokens and long-lived refresh tokens
-- **Input Validation** - Comprehensive validation for all inputs
-- **Error Handling** - Detailed error messages for debugging
+This backend handles the complete authentication flow you'd expect in a modern web app:
 
-## 📋 Tech Stack
+- User registration with email and password
+- Secure login with JWT token generation
+- Token refresh mechanism to keep users logged in
+- Logout functionality that properly cleans up tokens
+- Protected routes that require authentication
+- User profile viewing and updating
+- Bcrypt password hashing for security
+- Input validation to prevent bad data
 
-- **Node.js** - JavaScript runtime
-- **Express.js** - Web framework
-- **MongoDB** - NoSQL database
-- **Mongoose** - MongoDB ODM
-- **JWT** - JSON Web Tokens for authentication
-- **bcryptjs** - Password hashing
+## Tech Stack
 
-## 📦 Prerequisites
+I chose these technologies for their reliability and industry adoption:
 
-- Node.js (v14 or higher)
+- **Node.js & Express.js** - For the server and API
+- **MongoDB & Mongoose** - Database and object modeling
+- **JWT** - Token-based authentication
+- **bcryptjs** - Secure password hashing
+
+## Getting Started
+
+### What You'll Need
+
+- Node.js (v14+)
 - npm or yarn
-- MongoDB account (MongoDB Atlas recommended)
+- MongoDB Atlas account (or local MongoDB)
 
-## ⚙️ Installation
+### Setup Instructions
 
-1. **Clone the repository**
+Clone the repo and install dependencies:
 
 ```bash
 git clone <repository-url>
-cd auth-system-backend-claude
-```
-
-2. **Install dependencies**
-
-```bash
-cd server
+cd auth-system-backend/server
 npm install
 ```
 
-3. **Setup environment variables**
-   Create a `.env` file in the `server/` directory:
+Create a `.env` file in the `server/` directory with these variables:
 
 ```env
 PORT=5000
@@ -59,263 +54,157 @@ ACCESS_TOKEN_EXPIRY=15m
 REFRESH_TOKEN_EXPIRY=7d
 ```
 
-4. **Start the server**
+Start the development server:
 
 ```bash
 npm run dev
 ```
 
-The server will start on `http://localhost:5000`
+The server runs on `http://localhost:5000`
 
-## 📚 API Endpoints
+## API Reference
 
-### Authentication Routes
+### Authentication Endpoints
 
-#### Register User
+#### Register a new user
 
 ```
 POST /api/auth/signup
-Content-Type: application/json
 
 {
   "email": "user@example.com",
   "password": "password123",
   "name": "John Doe"
 }
-
-Response: 201 Created
-{
-  "message": "User created successfully",
-  "user": {
-    "id": "...",
-    "email": "user@example.com",
-    "role": "user"
-  }
-}
 ```
 
-#### Login User
+#### Login
 
 ```
 POST /api/auth/login
-Content-Type: application/json
 
 {
   "email": "user@example.com",
   "password": "password123"
 }
-
-Response: 200 OK
-{
-  "message": "Login successful",
-  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJIUzI1NiIs...",
-  "user": {
-    "id": "...",
-    "email": "user@example.com",
-    "role": "user"
-  }
-}
 ```
 
-#### Refresh Access Token
+Returns access token (15min expiry) and refresh token (7 days expiry).
+
+#### Refresh token
 
 ```
 POST /api/auth/refresh
-Cookie: refreshToken=<refreshToken>
-
-Response: 200 OK
-{
-  "accessToken": "eyJhbGciOiJIUzI1NiIs...",
-  "user": {
-    "id": "...",
-    "email": "user@example.com",
-    "role": "user"
-  }
-}
 ```
 
-#### Logout User
+Automatically reads refresh token from cookies and issues a new access token.
+
+#### Logout
 
 ```
 POST /api/auth/logout
-Cookie: refreshToken=<refreshToken>
-
-Response: 200 OK
-{
-  "message": "Logged out successfully"
-}
 ```
 
-### User Routes (Protected)
+Invalidates the refresh token and logs out the user.
 
-All user routes require the `Authorization: Bearer <accessToken>` header.
+### User Endpoints
 
-#### Get User Profile
+These routes require authentication via `Authorization: Bearer <accessToken>` header.
+
+#### Get profile
 
 ```
 GET /api/user/profile
-Authorization: Bearer <accessToken>
-
-Response: 200 OK
-{
-  "user": {
-    "id": "...",
-    "email": "user@example.com",
-    "role": "user",
-    "createdAt": "2026-01-23T10:00:00Z"
-  }
-}
 ```
 
-#### Update User Profile
+#### Update profile
 
 ```
 PUT /api/user/profile
-Authorization: Bearer <accessToken>
-Content-Type: application/json
 
 {
   "email": "newemail@example.com",
   "name": "Jane Doe"
 }
-
-Response: 200 OK
-{
-  "message": "Profile updated successfully",
-  "user": { ... }
-}
 ```
 
-## 🔒 Authentication Flow
+## How Authentication Works
 
-1. User registers with email and password
-2. Password is hashed using bcrypt before storing in database
-3. User logs in with email and password
-4. System verifies credentials and issues two tokens:
-   - **Access Token**: Valid for 15 minutes (used for API requests)
-   - **Refresh Token**: Valid for 7 days (used to get new access token)
-5. Client includes access token in `Authorization: Bearer <token>` header for protected routes
-6. Middleware validates token before allowing access to protected routes
+I implemented a dual-token system for better security:
 
-## 📁 Project Structure
+- User registers and their password gets hashed with bcrypt
+- On login, the system verifies credentials and issues two tokens
+- Access token (15 min) is used for API requests
+- Refresh token (7 days) is stored in httpOnly cookies
+- When access token expires, refresh endpoint issues a new one
+- Middleware validates tokens before granting access to protected routes
+
+## Project Structure
 
 ```
 server/
-├── models/
-│   └── user.model.js          # User schema and validation
-├── controllers/
-│   ├── auth.controller.js     # Authentication logic
-│   └── user.controller.js     # User profile logic
-├── routes/
-│   ├── auth.routes.js         # Auth endpoints
-│   └── user.routes.js         # User endpoints
-├── middleware/
-│   └── auth.middleware.js     # JWT verification middleware
-├── utils/
-│   ├── db.js                  # Database connection
-│   └── token.js               # JWT token generation and verification
-├── server.js                  # Express app setup
-├── app.js                     # Application entry point
-├── .env                       # Environment variables (not in git)
-└── package.json               # Dependencies
+├── models/           # Database schemas
+├── controllers/      # Business logic
+├── routes/          # API endpoints
+├── middleware/      # Auth verification
+├── utils/           # Helper functions (DB, tokens)
+├── server.js        # Express setup
+└── app.js           # Entry point
 ```
 
-## 🛡️ Security Best Practices
+## Security Features
 
-- Passwords are hashed with bcrypt (10 salt rounds)
-- AcceToken Management
+I've implemented several security best practices:
 
-### Refresh Token Flow
+- Passwords hashed with 10 salt rounds (never stored in plain text)
+- Short-lived access tokens minimize exposure
+- Refresh token rotation prevents token reuse
+- Environment variables keep secrets out of code
+- Passwords excluded from all API responses
+- Input validation on every endpoint
+- Proper error messages that don't leak sensitive info
 
-When access token expires, use the refresh token to get a new access token:
+## Error Responses
 
-```
-POST /api/auth/refresh
-Cookie: refreshToken=<refreshToken>
+The API uses standard HTTP status codes:
 
-Response: 200 OK
-{
-  "accessToken": "new_token_...",
-  "user": {
-    "id": "...",
-    "email": "user@example.com",
-    "role": "user"
-  }
-}
-```
+- `200`/`201` - Success
+- `400` - Validation errors
+- `401` - Authentication failed
+- `404` - Resource not found
+- `500` - Server error
 
-**Token Rotation**: A new refresh token is issued with each refresh request, and the old token is invalidated for security.
+## Example Usage
 
-### Logout Flow
-
-When logging out, the refresh token is cleared and invalidated:
-
-```
-POST /api/auth/logout
-Cookie: refreshToken=<refreshToken>
-
-Response: 200 OK
-{
-  "message": "Logged outrver port                   | `5000`              |
-| `NODE_ENV`             | Environment mode              | `development`       |
-| `MONGO_URI`            | MongoDB connection string     | `mongodb+srv://...` |
-| `ACCESS_TOKEN_SECRET`  | Secret key for access tokens  | Random string       |
-| `REFRESH_TOKEN_SECRET` | Secret key for refresh tokens | Random string       |
-| `ACCESS_TOKEN_EXPIRY`  | Access token expiration time  | `15m`               |
-| `REFRESH_TOKEN_EXPIRY` | Refresh token expiration time | `7d`                |
-
-## 🚨 Error Handling
-
-The API returns appropriate HTTP status codes:
-
-- `200` - Success
-- `201` - Created
-- `400` - Bad Request (validation error)
-- `401` - Unauthorized (invalid credentials or token)
-- `500` - Server Error
-
-## 🔄 Refresh Token Flow
-
-When access token expires:
-
-```
-
-POST /api/auth/refresh
-Authorization: Bearer <refreshToken>
-
-Response: 200 OK
-{
-"accessToken": "new*token*...",
-"message": "Token refreshed successfully"
-}
-
-````
-
-## 💡 Usage Example (Frontend)
+Here's how you'd use this from a frontend:
 
 ```javascript
 // Login
 const response = await fetch("http://localhost:5000/api/auth/login", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({ email: "user@example.com", password: "pass123" }),
+  body: JSON.stringify({
+    email: "user@example.com",
+    password: "pass123",
+  }),
 });
-const data = await response.json();
-localStorage.setItem("accessToken", data.accessToken);
+const { accessToken } = await response.json();
+localStorage.setItem("accessToken", accessToken);
 
-// Use token in protected request
-const profileResponse = await fetch("http://localhost:5000/api/user/profile", {
-  method: "GET",
-  headers: { Authorization: `Bearer ${localStorage.getItem("accessToken")}` },
+// Make authenticated request
+const profile = await fetch("http://localhost:5000/api/user/profile", {
+  headers: {
+    Authorization: `Bearer ${localStorage.getItem("accessToken")}`,
+  },
 });
-const profile = await profileResponse.json();
-````
+```
 
-## 📄 License
+## What I Learned
 
-This project is open source and available under the MIT License.
+Building this project helped me understand JWT authentication flows, token management strategies, and secure API design patterns. I focused on writing clean, maintainable code and following industry best practices.
 
-## 📞 Support
+## License
+
+MIT License - feel free to use this code for your own projects.
 
 For issues or questions, please create an issue in the repository.
