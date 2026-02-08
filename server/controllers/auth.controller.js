@@ -5,7 +5,6 @@ const {
   verifyRefreshToken,
 } = require("../utils/token");
 
-// Signup stays the same...
 exports.signup = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -41,7 +40,6 @@ exports.signup = async (req, res) => {
   }
 };
 
-// Updated Login with JWT
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -55,28 +53,52 @@ exports.login = async (req, res) => {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
+    // Check if account is locked
+    if (user.isLocked) {
+      const lockTimeLeft = Math.ceil((user.lockUntil - Date.now()) / 1000 / 60); // minutes
+      return res.status(423).json({
+        message: `Account locked due to too many failed login attempts. Try again in ${lockTimeLeft} minutes.`,
+      });
+    }
+
+    // Verify password
     const isMatch = await user.comparePassword(password);
+
     if (!isMatch) {
+      // Increment failed attempts
+      await user.incLoginAttempts();
+
+      // Check if this failed attempt locked the account
+      const updatedUser = await User.findById(user._id);
+      if (updatedUser.isLocked) {
+        return res.status(423).json({
+          message:
+            "Account locked due to too many failed login attempts. Try again in 2 hours.",
+        });
+      }
+
       return res.status(401).json({ message: "Invalid credentials" });
     }
+
+    // Successful login - reset attempts
+    await user.resetLoginAttempts();
 
     // Generate tokens
     const accessToken = generateAccessToken(user._id);
     const refreshToken = generateRefreshToken(user._id);
 
-    // Store refresh token in database
+    // Store refresh token
     user.refreshToken = refreshToken;
     await user.save();
 
-    // Send refresh token as httpOnly cookie
+    // Send refresh token as cookie
     res.cookie("refreshToken", refreshToken, {
-      httpOnly: true, // Cannot be accessed by JavaScript
-      secure: process.env.NODE_ENV === "production", // HTTPS only in production
-      sameSite: "strict", // CSRF protection
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // Send access token in response body
     res.json({
       message: "Login successful",
       accessToken,
@@ -92,30 +114,25 @@ exports.login = async (req, res) => {
   }
 };
 
-// @desc    Refresh access token
-// @route   POST /api/auth/refresh
 exports.refresh = async (req, res) => {
   try {
-    // Get refresh token from cookie
     const { refreshToken } = req.cookies;
 
     if (!refreshToken) {
       return res.status(401).json({ message: "No refresh token provided" });
     }
 
-    // Verify refresh token
     const decoded = verifyRefreshToken(refreshToken);
     if (!decoded) {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
-    // Find user and verify token matches stored token
     const user = await User.findById(decoded.userId);
     if (!user || user.refreshToken !== refreshToken) {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
-    // Generate NEW tokens (rotation)
+    // Generate new tokens
     const newAccessToken = generateAccessToken(user._id);
     const newRefreshToken = generateRefreshToken(user._id);
 
@@ -123,15 +140,14 @@ exports.refresh = async (req, res) => {
     user.refreshToken = newRefreshToken;
     await user.save();
 
-    // Send new refresh token as cookie
+    // Send new refresh token
     res.cookie("refreshToken", newRefreshToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      maxAge: 7 * 24 * 60 * 60 * 1000,
     });
 
-    // Send new access token
     res.json({
       accessToken: newAccessToken,
       user: {
@@ -146,18 +162,14 @@ exports.refresh = async (req, res) => {
   }
 };
 
-// @desc    Logout user
-// @route   POST /api/auth/logout
 exports.logout = async (req, res) => {
   try {
     const { refreshToken } = req.cookies;
 
     if (refreshToken) {
-      // Find user and clear refresh token
       await User.findOneAndUpdate({ refreshToken }, { refreshToken: null });
     }
 
-    // Clear cookie
     res.clearCookie("refreshToken", {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",

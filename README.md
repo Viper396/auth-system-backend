@@ -23,6 +23,10 @@ I chose these technologies for their reliability and industry adoption:
 - **MongoDB & Mongoose** - Database and object modeling
 - **JWT** - Token-based authentication
 - **bcryptjs** - Secure password hashing
+- **Helmet** - Security headers for Express
+- **express-rate-limit** - Rate limiting to prevent brute force attacks
+- **express-validator** - Input validation and sanitization
+- **Morgan** - HTTP request logging
 
 ## Getting Started
 
@@ -161,7 +165,18 @@ I've implemented several security best practices:
 - Refresh token rotation prevents token reuse
 - Environment variables keep secrets out of code
 - Passwords excluded from all API responses
-- Input validation on every endpoint
+- Input validation on every endpoint using express-validator
+- Comprehensive input sanitization to prevent injection attacks
+- Email validation and normalization
+- Password strength requirements (minimum 6 characters with at least one number)
+- Rate limiting to prevent brute force attacks:
+  - Authentication endpoints: 5 attempts per 15 minutes
+  - General API: 100 requests per 15 minutes
+  - Password reset: 3 attempts per hour
+- Security headers implemented with Helmet
+- HTTP request logging with Morgan
+- Account lockout after repeated failed login attempts (locks for 2 hours after 5 failed attempts)
+- Validation middleware applied to signup, login, and profile update routes using express-validator
 - Proper error messages that don't leak sensitive info
 
 ## Error Responses
