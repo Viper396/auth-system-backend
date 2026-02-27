@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 
 const userSchema = new mongoose.Schema(
   {
@@ -24,7 +25,6 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
-    // Account lockout fields
     loginAttempts: {
       type: Number,
       default: 0,
@@ -33,16 +33,23 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Password reset fields
+    resetPasswordToken: {
+      type: String,
+      default: null,
+    },
+    resetPasswordExpires: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true },
 );
 
-// Virtual for checking if account is locked
 userSchema.virtual("isLocked").get(function () {
   return !!(this.lockUntil && this.lockUntil > Date.now());
 });
 
-// Hash password before saving
 userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) return next();
 
@@ -51,14 +58,11 @@ userSchema.pre("save", async function (next) {
   next();
 });
 
-// Compare password
 userSchema.methods.comparePassword = async function (candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Increment login attempts
 userSchema.methods.incLoginAttempts = async function () {
-  // If lock has expired, reset attempts
   if (this.lockUntil && this.lockUntil < Date.now()) {
     return await this.updateOne({
       $set: { loginAttempts: 1 },
@@ -67,10 +71,8 @@ userSchema.methods.incLoginAttempts = async function () {
   }
 
   const updates = { $inc: { loginAttempts: 1 } };
-
-  // Lock account after 5 failed attempts
   const maxAttempts = 5;
-  const lockTime = 2 * 60 * 60 * 1000; // 2 hours
+  const lockTime = 2 * 60 * 60 * 1000;
 
   if (this.loginAttempts + 1 >= maxAttempts && !this.isLocked) {
     updates.$set = { lockUntil: Date.now() + lockTime };
@@ -79,12 +81,29 @@ userSchema.methods.incLoginAttempts = async function () {
   return await this.updateOne(updates);
 };
 
-// Reset login attempts on successful login
 userSchema.methods.resetLoginAttempts = async function () {
   return await this.updateOne({
     $set: { loginAttempts: 0 },
     $unset: { lockUntil: 1 },
   });
+};
+
+// Generate password reset token
+userSchema.methods.createPasswordResetToken = function () {
+  // Generate random token
+  const resetToken = crypto.randomBytes(32).toString("hex");
+
+  // Hash token before storing (security best practice)
+  this.resetPasswordToken = crypto
+    .createHash("sha256")
+    .update(resetToken)
+    .digest("hex");
+
+  // Token expires in 1 hour
+  this.resetPasswordExpires = Date.now() + 60 * 60 * 1000;
+
+  // Return unhashed token (this goes in the email)
+  return resetToken;
 };
 
 module.exports = mongoose.model("User", userSchema);
