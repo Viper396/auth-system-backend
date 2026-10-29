@@ -19,7 +19,7 @@ const ResetPassword = () => {
       try {
         await authAPI.verifyResetToken(token);
         setTokenValid(true);
-      } catch (err) {
+      } catch {
         setError("Invalid or expired reset link");
         setTokenValid(false);
       } finally {

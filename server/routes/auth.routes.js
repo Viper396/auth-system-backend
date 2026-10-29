@@ -35,9 +35,10 @@ router.post(
   validate,
   forgotPassword,
 );
-router.get("/reset-password/:token", verifyResetToken);
+router.get("/reset-password/:token", authLimiter, verifyResetToken);
 router.post(
   "/reset-password/:token",
+  authLimiter,
   resetPasswordValidation,
   validate,
   resetPassword,

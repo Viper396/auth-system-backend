@@ -32,7 +32,7 @@ export const AuthProvider = ({ children }) => {
             const { data } = await authAPI.refresh();
             setAuthToken(data.accessToken);
             setUser(data.user);
-          } catch (error) {
+          } catch {
             clearAuthToken();
           }
         }

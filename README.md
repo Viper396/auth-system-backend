@@ -50,22 +50,34 @@ cd auth-system-backend/server
 npm install
 ```
 
-Create a `.env` file in the `server/` directory with these variables:
+Copy the example environment configuration:
+
+```bash
+cp .env.example .env
+```
+
+Configure your `.env` file in the `server/` directory:
 
 ```env
 PORT=5000
 NODE_ENV=development
 MONGO_URI=mongodb+srv://<username>:<password>@<cluster>.mongodb.net/<dbname>
-JWT_ACCESS_SECRET=your_access_token_secret_key_here
-JWT_REFRESH_SECRET=your_refresh_token_secret_key_here
-FRONTEND_URL=http://localhost:3000
+JWT_ACCESS_SECRET=your_access_token_secret_min_32_chars
+JWT_REFRESH_SECRET=your_refresh_token_secret_min_32_chars
+FRONTEND_URL=http://localhost:5173
 EMAIL_HOST=smtp.gmail.com
 EMAIL_PORT=587
 EMAIL_USER=your-email@gmail.com
 EMAIL_PASSWORD=your-app-password
 EMAIL_FROM=noreply@yourapp.com
-APP_NAME=Your App Name
+APP_NAME=AuthSystem
 ```
+
+> **Configuration Requirements:**
+> - **Canonical JWT Secret Names**: The application expects `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`.
+> - **Startup Validation**: The server validates all required variables on startup (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `MONGO_URI`) and exits immediately with an error if any required setting is missing.
+> - **Production Requirements**: In `NODE_ENV=production`, JWT secrets must be at least 32 characters long, placeholder values are strictly forbidden, and `FRONTEND_URL` must point to the production frontend domain.
+> - **Security Notice**: Actual credentials must only reside in uncommitted `.env` files or secret managers. Never commit secrets to version control. Placeholder templates are provided in `server/.env.example` and `client/.env.example`.
 
 Start the development server:
 

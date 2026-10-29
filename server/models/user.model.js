@@ -88,21 +88,23 @@ userSchema.methods.resetLoginAttempts = async function () {
   });
 };
 
+userSchema.index({ resetPasswordToken: 1 }, { sparse: true });
+
 // Generate password reset token
-userSchema.methods.createPasswordResetToken = function () {
-  // Generate random token
+userSchema.methods.createPasswordResetToken = function (expireMinutes = 15) {
+  // Generate cryptographically secure random token (256-bit entropy)
   const resetToken = crypto.randomBytes(32).toString("hex");
 
-  // Hash token before storing (security best practice)
+  // Hash token before storing (SHA-256)
   this.resetPasswordToken = crypto
     .createHash("sha256")
     .update(resetToken)
     .digest("hex");
 
-  // Token expires in 1 hour
-  this.resetPasswordExpires = Date.now() + 60 * 60 * 1000;
+  // Token expires in expireMinutes (default 15 minutes)
+  this.resetPasswordExpires = Date.now() + expireMinutes * 60 * 1000;
 
-  // Return unhashed token (this goes in the email)
+  // Return unhashed token for email link only
   return resetToken;
 };
 

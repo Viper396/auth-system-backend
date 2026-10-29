@@ -16,7 +16,7 @@ const AdminPanel = () => {
     try {
       const { data } = await adminAPI.getAllUsers();
       setUsers(data.users);
-    } catch (err) {
+    } catch {
       setError("Failed to load users");
     } finally {
       setLoading(false);

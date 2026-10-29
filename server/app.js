@@ -3,24 +3,41 @@ const cookieParser = require("cookie-parser");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
+const config = require("./config/env");
 const { generalLimiter } = require("./middleware/rateLimit.middleware");
 
 const app = express();
 
-// Security middleware
-app.use(helmet()); // Secure headers
-app.use(morgan("combined")); // Request logging
+// Security headers
+app.use(helmet());
 
-// Rate limiting
-app.use("/api/", generalLimiter); // Apply to all API routes
+// Request logging (Apache combined format, does not log request bodies or authorization headers)
+app.use(morgan("combined"));
 
-// CORS
-app.use(
-  cors({
-    origin: "http://localhost:3000",
-    credentials: true,
-  }),
-);
+// Rate limiting applied to API routes
+app.use("/api/", generalLimiter);
+
+// Hardened CORS configuration with explicit trusted origins
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+    if (!origin) {
+      return callback(null, true);
+    }
+    const normalizedOrigin = origin.replace(/\/+$/, "");
+    if (config.TRUSTED_ORIGINS.includes(normalizedOrigin)) {
+      return callback(null, true);
+    }
+    // Block disallowed origin safely without throwing uncaught errors
+    return callback(null, false);
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  maxAge: 86400, // Cache preflight for 24 hours
+};
+
+app.use(cors(corsOptions));
 
 // Body parsing
 app.use(express.json());
