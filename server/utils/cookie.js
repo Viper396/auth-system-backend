@@ -19,12 +19,17 @@ const getRefreshTokenCookieOptions = (customConfig = config) => {
     isProduction ||
     sameSite === "none";
 
+  // Derive cookie maxAge from refresh token expiration
+  const refreshExpiresSeconds =
+    customConfig.JWT_REFRESH_EXPIRES_IN_SECONDS || 7 * 24 * 60 * 60;
+  const maxAge = refreshExpiresSeconds * 1000;
+
   const options = {
     httpOnly: true,
     secure,
     sameSite,
     path: "/api/auth",
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    maxAge,
   };
 
   if (customConfig.COOKIE_DOMAIN) {

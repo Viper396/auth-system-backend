@@ -1,4 +1,5 @@
 const User = require("../models/user.model");
+const Session = require("../models/session.model");
 const crypto = require("crypto");
 const config = require("../config/env");
 const { sendPasswordResetEmail } = require("../utils/email");
@@ -8,8 +9,10 @@ const {
   getClearRefreshTokenCookieOptions,
 } = require("../utils/cookie");
 const {
+  hashToken,
   generateAccessToken,
   generateRefreshToken,
+  verifyAccessToken,
   verifyRefreshToken,
 } = require("../utils/token");
 
@@ -91,13 +94,35 @@ exports.login = async (req, res) => {
     // Successful login - reset attempts
     await user.resetLoginAttempts();
 
-    // Generate tokens
-    const accessToken = generateAccessToken(user._id);
-    const refreshToken = generateRefreshToken(user._id);
+    // Determine session lifetime
+    const refreshLifetimeSeconds =
+      config.JWT_REFRESH_EXPIRES_IN_SECONDS || 7 * 24 * 60 * 60;
+    const sessionExpiresAt = new Date(
+      Date.now() + refreshLifetimeSeconds * 1000,
+    );
 
-    // Store refresh token
-    user.refreshToken = refreshToken;
-    await user.save();
+    // Create session document in database
+    const session = new Session({
+      userId: user._id,
+      currentHash: "pending",
+      expiresAt: sessionExpiresAt,
+      userAgent: req.headers?.["user-agent"] || null,
+      ipAddress: req.ip || req.connection?.remoteAddress || null,
+    });
+
+    // Generate tokens bound to sessionId
+    const accessToken = generateAccessToken(user._id, session._id);
+    const refreshToken = generateRefreshToken(user._id, session._id);
+
+    // Store only SHA-256 hash of refresh token
+    session.currentHash = hashToken(refreshToken);
+    await session.save();
+
+    // Clear legacy plaintext token on user document if present
+    if (user.refreshToken) {
+      user.refreshToken = null;
+      await user.save();
+    }
 
     // Send refresh token as hardened httpOnly cookie
     res.cookie(
@@ -123,57 +148,208 @@ exports.login = async (req, res) => {
 
 exports.refresh = async (req, res) => {
   try {
-    const { refreshToken } = req.cookies;
+    const refreshToken =
+      req.cookies?.[REFRESH_TOKEN_COOKIE_NAME] || req.body?.refreshToken;
 
-    if (!refreshToken) {
+    if (!refreshToken || typeof refreshToken !== "string" || !refreshToken.trim()) {
       return res.status(401).json({ message: "No refresh token provided" });
     }
 
-    const decoded = verifyRefreshToken(refreshToken);
+    const trimmedToken = refreshToken.trim();
+    const decoded = verifyRefreshToken(trimmedToken);
     if (!decoded) {
       return res.status(401).json({ message: "Invalid refresh token" });
     }
 
-    const user = await User.findById(decoded.userId);
-    if (!user || user.refreshToken !== refreshToken) {
-      return res.status(401).json({ message: "Invalid refresh token" });
-    }
-
-    // Generate new tokens
-    const newAccessToken = generateAccessToken(user._id);
-    const newRefreshToken = generateRefreshToken(user._id);
-
-    // Update stored refresh token
-    user.refreshToken = newRefreshToken;
-    await user.save();
-
-    // Send new refresh token
-    res.cookie(
-      REFRESH_TOKEN_COOKIE_NAME,
-      newRefreshToken,
-      getRefreshTokenCookieOptions(),
+    const tokenHash = hashToken(trimmedToken);
+    const refreshLifetimeSeconds =
+      config.JWT_REFRESH_EXPIRES_IN_SECONDS || 7 * 24 * 60 * 60;
+    const newSessionExpiresAt = new Date(
+      Date.now() + refreshLifetimeSeconds * 1000,
     );
 
-    res.json({
-      accessToken: newAccessToken,
-      user: {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-      },
-    });
+    // If token has sessionId (Session-based multi-device flow)
+    if (decoded.sessionId) {
+      // 1. ATOMIC CONDITIONAL ROTATION:
+      // Guarantees only one concurrent request can consume the current token
+      const newRefreshToken = generateRefreshToken(
+        decoded.userId,
+        decoded.sessionId,
+      );
+      const newHash = hashToken(newRefreshToken);
+      const gracePeriodMs = 20000; // 20-second grace window for racing tabs/requests
+
+      const session = await Session.findOneAndUpdate(
+        {
+          _id: decoded.sessionId,
+          currentHash: tokenHash,
+          expiresAt: { $gt: new Date() },
+        },
+        {
+          $set: {
+            previousHash: tokenHash,
+            currentHash: newHash,
+            rotationGraceUntil: new Date(Date.now() + gracePeriodMs),
+            expiresAt: newSessionExpiresAt,
+          },
+        },
+        { new: true },
+      );
+
+      if (session) {
+        // Successful atomic rotation
+        const user = await User.findById(decoded.userId);
+        if (!user) {
+          await Session.findByIdAndDelete(decoded.sessionId);
+          return res.status(401).json({ message: "User not found" });
+        }
+
+        const newAccessToken = generateAccessToken(user._id, session._id);
+
+        res.cookie(
+          REFRESH_TOKEN_COOKIE_NAME,
+          newRefreshToken,
+          getRefreshTokenCookieOptions(),
+        );
+
+        return res.json({
+          accessToken: newAccessToken,
+          user: {
+            id: user._id,
+            email: user.email,
+            role: user.role,
+          },
+        });
+      }
+
+      // If conditional update didn't match currentHash, inspect existing session state
+      const existingSession = await Session.findById(decoded.sessionId);
+
+      if (!existingSession) {
+        return res.status(401).json({ message: "Invalid refresh token" });
+      }
+
+      // Check if token matches previousHash (already rotated token)
+      if (existingSession.previousHash === tokenHash) {
+        const now = new Date();
+        if (
+          existingSession.rotationGraceUntil &&
+          existingSession.rotationGraceUntil > now
+        ) {
+          // CONCURRENT GRACE WINDOW: Safe race condition within 20s
+          // Issue fresh access token without re-advancing rotation
+          const user = await User.findById(decoded.userId);
+          if (!user) {
+            return res.status(401).json({ message: "User not found" });
+          }
+
+          const freshAccessToken = generateAccessToken(
+            user._id,
+            existingSession._id,
+          );
+
+          return res.json({
+            accessToken: freshAccessToken,
+            user: {
+              id: user._id,
+              email: user.email,
+              role: user.role,
+            },
+          });
+        } else {
+          // REPLAY DETECTED: Attempt to consume old token after grace window expired
+          // Immediate theft mitigation: destroy the session entirely
+          await Session.findByIdAndDelete(decoded.sessionId);
+          res.clearCookie(
+            REFRESH_TOKEN_COOKIE_NAME,
+            getClearRefreshTokenCookieOptions(),
+          );
+          return res.status(401).json({ message: "Invalid refresh token" });
+        }
+      }
+
+      // Token matches neither currentHash nor previousHash
+      return res.status(401).json({ message: "Invalid refresh token" });
+    } else {
+      // BACKWARDS-COMPATIBILITY FALLBACK: Legacy tokens without sessionId
+      const user = await User.findById(decoded.userId);
+      if (!user || user.refreshToken !== trimmedToken) {
+        return res.status(401).json({ message: "Invalid refresh token" });
+      }
+
+      const newSession = new Session({
+        userId: user._id,
+        currentHash: "pending",
+        expiresAt: newSessionExpiresAt,
+      });
+
+      const newAccessToken = generateAccessToken(user._id, newSession._id);
+      const newRefreshToken = generateRefreshToken(user._id, newSession._id);
+      newSession.currentHash = hashToken(newRefreshToken);
+      await newSession.save();
+
+      // Clear legacy refreshToken on user document
+      user.refreshToken = null;
+      await user.save();
+
+      res.cookie(
+        REFRESH_TOKEN_COOKIE_NAME,
+        newRefreshToken,
+        getRefreshTokenCookieOptions(),
+      );
+
+      return res.json({
+        accessToken: newAccessToken,
+        user: {
+          id: user._id,
+          email: user.email,
+          role: user.role,
+        },
+      });
+    }
   } catch (error) {
-    console.error("Refresh token error:", error);
+    console.error("Refresh token error:", error.message || "Server error");
     res.status(500).json({ message: "Server error" });
   }
 };
 
 exports.logout = async (req, res) => {
   try {
-    const { refreshToken } = req.cookies;
+    const refreshToken =
+      req.cookies?.[REFRESH_TOKEN_COOKIE_NAME] || req.body?.refreshToken;
 
-    if (refreshToken) {
-      await User.findOneAndUpdate({ refreshToken }, { refreshToken: null });
+    if (refreshToken && typeof refreshToken === "string" && refreshToken.trim()) {
+      const trimmedToken = refreshToken.trim();
+      const tokenHash = hashToken(trimmedToken);
+
+      // Invalidate specific session by token hash
+      await Session.deleteOne({
+        $or: [{ currentHash: tokenHash }, { previousHash: tokenHash }],
+      });
+
+      // Legacy fallback
+      await User.findOneAndUpdate(
+        { refreshToken: trimmedToken },
+        { refreshToken: null },
+      );
+    }
+
+    // Invalidate refresh session if user called logout with Authorization header
+    const authHeader = req.headers?.authorization;
+    if (
+      authHeader &&
+      typeof authHeader === "string" &&
+      authHeader.startsWith("Bearer ")
+    ) {
+      const token = authHeader.split(" ")[1]?.trim();
+      if (token) {
+        const decoded = verifyAccessToken(token);
+        if (decoded?.sessionId) {
+          await Session.findByIdAndDelete(decoded.sessionId);
+        } else if (decoded?.userId) {
+          await User.findByIdAndUpdate(decoded.userId, { refreshToken: null });
+        }
+      }
     }
 
     res.clearCookie(
@@ -183,7 +359,26 @@ exports.logout = async (req, res) => {
 
     res.json({ message: "Logged out successfully" });
   } catch (error) {
-    console.error("Logout error:", error);
+    console.error("Logout error:", error.message || "Server error");
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+exports.logoutAll = async (req, res) => {
+  try {
+    if (req.user?._id) {
+      await Session.deleteMany({ userId: req.user._id });
+      await User.findByIdAndUpdate(req.user._id, { refreshToken: null });
+    }
+
+    res.clearCookie(
+      REFRESH_TOKEN_COOKIE_NAME,
+      getClearRefreshTokenCookieOptions(),
+    );
+
+    res.json({ message: "All sessions logged out successfully" });
+  } catch (error) {
+    console.error("Logout all error:", error.message || "Server error");
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -340,6 +535,9 @@ exports.resetPassword = async (req, res) => {
     // Set new password (triggers Mongoose pre-save bcrypt hook)
     user.password = password;
     await user.save();
+
+    // Revoke all active refresh sessions across all devices for this user
+    await Session.deleteMany({ userId: user._id });
 
     // Revoke refresh token cookie from calling client if present
     res.clearCookie(

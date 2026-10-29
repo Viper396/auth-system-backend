@@ -14,6 +14,38 @@ const INSECURE_SECRETS = new Set([
 ]);
 
 /**
+ * Parses duration string (e.g. "15m", "1h", "7d", "30d", "900") into seconds.
+ * Returns null if the format is invalid.
+ *
+ * @param {string|number} val
+ * @returns {number|null}
+ */
+function parseDurationToSeconds(val) {
+  if (typeof val === "number" && Number.isFinite(val)) return val;
+  if (!val || typeof val !== "string") return null;
+  const trimmed = val.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return parseInt(trimmed, 10);
+  }
+  const match = trimmed.match(/^(\d+)\s*([smhd])$/i);
+  if (!match) return null;
+  const count = parseInt(match[1], 10);
+  const unit = match[2].toLowerCase();
+  switch (unit) {
+    case "s":
+      return count;
+    case "m":
+      return count * 60;
+    case "h":
+      return count * 3600;
+    case "d":
+      return count * 86400;
+    default:
+      return null;
+  }
+}
+
+/**
  * Validates and normalizes application configuration.
  * Never prints secret values in error messages.
  *
@@ -85,6 +117,52 @@ function validateConfig(env = process.env) {
     }
   }
 
+  // 4b. Ensure Access and Refresh secrets are strictly distinct
+  if (
+    jwtAccessSecret &&
+    jwtRefreshSecret &&
+    jwtAccessSecret === jwtRefreshSecret
+  ) {
+    errors.push(
+      "Insecure JWT configuration: JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be distinct secrets.",
+    );
+  }
+
+  // 4c. JWT Token Lifetimes (Configurable within safe bounds)
+  // Access token safe bounds: 1 minute (60s) to 1 hour (3600s)
+  const rawAccessExpiry = (env.JWT_ACCESS_EXPIRES_IN || "15m").trim();
+  const accessExpirySeconds = parseDurationToSeconds(rawAccessExpiry);
+  if (
+    accessExpirySeconds === null ||
+    accessExpirySeconds < 60 ||
+    accessExpirySeconds > 3600
+  ) {
+    errors.push(
+      `Invalid JWT_ACCESS_EXPIRES_IN: "${rawAccessExpiry}". Must be between 1 minute and 1 hour (e.g., "15m", "30m", "1h").`,
+    );
+  }
+
+  // Refresh token safe bounds: 1 hour (3600s) to 30 days (2592000s)
+  const rawRefreshExpiry = (env.JWT_REFRESH_EXPIRES_IN || "7d").trim();
+  const refreshExpirySeconds = parseDurationToSeconds(rawRefreshExpiry);
+  if (
+    refreshExpirySeconds === null ||
+    refreshExpirySeconds < 3600 ||
+    refreshExpirySeconds > 2592000
+  ) {
+    errors.push(
+      `Invalid JWT_REFRESH_EXPIRES_IN: "${rawRefreshExpiry}". Must be between 1 hour and 30 days (e.g., "7d", "14d", "30d").`,
+    );
+  }
+
+  // 4d. Optional Claims: Issuer and Audience
+  const jwtIssuer =
+    env.JWT_ISSUER && env.JWT_ISSUER.trim() ? env.JWT_ISSUER.trim() : undefined;
+  const jwtAudience =
+    env.JWT_AUDIENCE && env.JWT_AUDIENCE.trim()
+      ? env.JWT_AUDIENCE.trim()
+      : undefined;
+
   // 5. MongoDB URI (required in development and production)
   const mongoUri = env.MONGO_URI || "";
   if (nodeEnv !== "test" && (!mongoUri || !mongoUri.trim())) {
@@ -145,6 +223,12 @@ function validateConfig(env = process.env) {
     MONGO_URI: mongoUri,
     JWT_ACCESS_SECRET: jwtAccessSecret,
     JWT_REFRESH_SECRET: jwtRefreshSecret,
+    JWT_ACCESS_EXPIRES_IN: rawAccessExpiry,
+    JWT_ACCESS_EXPIRES_IN_SECONDS: accessExpirySeconds || 900,
+    JWT_REFRESH_EXPIRES_IN: rawRefreshExpiry,
+    JWT_REFRESH_EXPIRES_IN_SECONDS: refreshExpirySeconds || 604800,
+    JWT_ISSUER: jwtIssuer,
+    JWT_AUDIENCE: jwtAudience,
     FRONTEND_URL: trustedOrigins[0] || "http://localhost:5173",
     TRUSTED_ORIGINS: Object.freeze(trustedOrigins),
     COOKIE_SAME_SITE: cookieSameSite,
@@ -168,4 +252,5 @@ const runtimeConfig = validateConfig(process.env);
 module.exports = {
   ...runtimeConfig,
   validateConfig,
+  parseDurationToSeconds,
 };

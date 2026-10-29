@@ -10,11 +10,13 @@ const {
   resetPasswordValidation,
   validate,
 } = require("../middleware/validation.middleware");
+const authenticate = require("../middleware/auth.middleware");
 const {
   signup,
   login,
   refresh,
   logout,
+  logoutAll,
   forgotPassword,
   verifyResetToken,
   resetPassword,
@@ -26,6 +28,7 @@ router.post("/signup", authLimiter, signupValidation, validate, signup);
 router.post("/login", authLimiter, loginValidation, validate, login);
 router.post("/refresh", refresh);
 router.post("/logout", logout);
+router.post("/logout-all", authenticate, logoutAll);
 
 // Password reset routes
 router.post(

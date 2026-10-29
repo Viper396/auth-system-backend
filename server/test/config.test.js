@@ -176,4 +176,100 @@ describe("Environment Configuration & Validation", () => {
       assert.ok(!err.message.includes(sensitiveSecret), "Secret leaked in error message!");
     }
   });
+
+  test("rejects identical JWT_ACCESS_SECRET and JWT_REFRESH_SECRET", () => {
+    const identicalSecretsEnv = {
+      ...baseValidEnv,
+      JWT_ACCESS_SECRET: "same_secret_key_used_for_both_access_and_refresh!",
+      JWT_REFRESH_SECRET: "same_secret_key_used_for_both_access_and_refresh!",
+    };
+
+    assert.throws(
+      () => validateConfig(identicalSecretsEnv),
+      (err) => {
+        assert.match(err.message, /must be distinct secrets/);
+        return true;
+      },
+    );
+  });
+
+  test("validates JWT_ACCESS_EXPIRES_IN within safe bounds (1m to 1h)", () => {
+    // Valid values
+    const valid1m = validateConfig({ ...baseValidEnv, JWT_ACCESS_EXPIRES_IN: "1m" });
+    assert.equal(valid1m.JWT_ACCESS_EXPIRES_IN_SECONDS, 60);
+
+    const valid30m = validateConfig({ ...baseValidEnv, JWT_ACCESS_EXPIRES_IN: "30m" });
+    assert.equal(valid30m.JWT_ACCESS_EXPIRES_IN_SECONDS, 1800);
+
+    const valid1h = validateConfig({ ...baseValidEnv, JWT_ACCESS_EXPIRES_IN: "1h" });
+    assert.equal(valid1h.JWT_ACCESS_EXPIRES_IN_SECONDS, 3600);
+
+    // Too short (< 1m)
+    assert.throws(
+      () => validateConfig({ ...baseValidEnv, JWT_ACCESS_EXPIRES_IN: "30s" }),
+      (err) => {
+        assert.match(err.message, /Invalid JWT_ACCESS_EXPIRES_IN/);
+        return true;
+      },
+    );
+
+    // Too long (> 1h)
+    assert.throws(
+      () => validateConfig({ ...baseValidEnv, JWT_ACCESS_EXPIRES_IN: "2h" }),
+      (err) => {
+        assert.match(err.message, /Invalid JWT_ACCESS_EXPIRES_IN/);
+        return true;
+      },
+    );
+
+    // Invalid format
+    assert.throws(
+      () => validateConfig({ ...baseValidEnv, JWT_ACCESS_EXPIRES_IN: "unlimited" }),
+      (err) => {
+        assert.match(err.message, /Invalid JWT_ACCESS_EXPIRES_IN/);
+        return true;
+      },
+    );
+  });
+
+  test("validates JWT_REFRESH_EXPIRES_IN within safe bounds (1h to 30d)", () => {
+    // Valid values
+    const valid1h = validateConfig({ ...baseValidEnv, JWT_REFRESH_EXPIRES_IN: "1h" });
+    assert.equal(valid1h.JWT_REFRESH_EXPIRES_IN_SECONDS, 3600);
+
+    const valid7d = validateConfig({ ...baseValidEnv, JWT_REFRESH_EXPIRES_IN: "7d" });
+    assert.equal(valid7d.JWT_REFRESH_EXPIRES_IN_SECONDS, 604800);
+
+    const valid30d = validateConfig({ ...baseValidEnv, JWT_REFRESH_EXPIRES_IN: "30d" });
+    assert.equal(valid30d.JWT_REFRESH_EXPIRES_IN_SECONDS, 2592000);
+
+    // Too short (< 1h)
+    assert.throws(
+      () => validateConfig({ ...baseValidEnv, JWT_REFRESH_EXPIRES_IN: "30m" }),
+      (err) => {
+        assert.match(err.message, /Invalid JWT_REFRESH_EXPIRES_IN/);
+        return true;
+      },
+    );
+
+    // Too long (> 30d)
+    assert.throws(
+      () => validateConfig({ ...baseValidEnv, JWT_REFRESH_EXPIRES_IN: "60d" }),
+      (err) => {
+        assert.match(err.message, /Invalid JWT_REFRESH_EXPIRES_IN/);
+        return true;
+      },
+    );
+  });
+
+  test("parses optional JWT_ISSUER and JWT_AUDIENCE claims when configured", () => {
+    const claimsEnv = {
+      ...baseValidEnv,
+      JWT_ISSUER: "https://auth.company.com",
+      JWT_AUDIENCE: "auth-api",
+    };
+    const config = validateConfig(claimsEnv);
+    assert.equal(config.JWT_ISSUER, "https://auth.company.com");
+    assert.equal(config.JWT_AUDIENCE, "auth-api");
+  });
 });

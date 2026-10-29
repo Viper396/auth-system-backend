@@ -73,10 +73,11 @@ EMAIL_FROM=noreply@yourapp.com
 APP_NAME=AuthSystem
 ```
 
-> **Configuration Requirements:**
-> - **Canonical JWT Secret Names**: The application expects `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`.
-> - **Startup Validation**: The server validates all required variables on startup (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `MONGO_URI`) and exits immediately with an error if any required setting is missing.
-> - **Production Requirements**: In `NODE_ENV=production`, JWT secrets must be at least 32 characters long, placeholder values are strictly forbidden, and `FRONTEND_URL` must point to the production frontend domain.
+> **Configuration & Security Requirements:**
+> - **Canonical JWT Secret Names**: The application expects `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET`. Both keys must be strictly distinct from each other.
+> - **Startup Validation**: The server validates all required variables on startup (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `MONGO_URI`) and exits immediately with an error if any required setting is missing or invalid.
+> - **Token Lifetimes & Bounds**: Access tokens (`JWT_ACCESS_EXPIRES_IN`, default: `15m`) must be bounded between 1 minute and 1 hour. Refresh tokens (`JWT_REFRESH_EXPIRES_IN`, default: `7d`) must be bounded between 1 hour and 30 days. Optional claims `JWT_ISSUER` and `JWT_AUDIENCE` are verified when configured.
+> - **Production Requirements**: In `NODE_ENV=production`, JWT secrets must be at least 32 characters long, placeholder values are strictly forbidden, and `FRONTEND_URL` must point to trusted production frontend domains.
 > - **Security Notice**: Actual credentials must only reside in uncommitted `.env` files or secret managers. Never commit secrets to version control. Placeholder templates are provided in `server/.env.example` and `client/.env.example`.
 
 Start the development server:
@@ -121,15 +122,24 @@ Returns access token (15min expiry) and refresh token (7 days expiry).
 POST /api/auth/refresh
 ```
 
-Automatically reads refresh token from cookies and issues a new access token.
+Automatically reads refresh token from cookies, rotates the session atomically, and issues a new access token and rotated refresh token cookie. Features a 20-second concurrency grace window to prevent race-condition lockouts across parallel requests, and immediately revokes the session if token theft/replay is detected after the grace window.
 
-#### Logout
+#### Logout (Current Session)
 
 ```
 POST /api/auth/logout
 ```
 
-Invalidates the refresh token and logs out the user.
+Revokes the current device's refresh session and clears the cookie. Other active devices remain unaffected.
+
+#### Logout All Sessions (Global Logout)
+
+```
+POST /api/auth/logout-all
+Authorization: Bearer <accessToken>
+```
+
+Revokes all active sessions across all devices for the authenticated user and clears the cookie.
 
 #### Request password reset
 

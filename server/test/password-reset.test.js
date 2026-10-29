@@ -2,6 +2,7 @@ const { test, describe, beforeEach, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("crypto");
 const User = require("../models/user.model");
+const Session = require("../models/session.model");
 const emailUtil = require("../utils/email");
 const authController = require("../controllers/auth.controller");
 const config = require("../config/env");
@@ -39,11 +40,14 @@ describe("Password Reset - Token Generation & Hashing (Model)", () => {
 describe("Password Reset - Controller Flow & Security", () => {
   let originalFindOne;
   let originalFindOneAndUpdate;
+  let originalDeleteMany;
   let sentEmails = [];
 
   beforeEach(() => {
     originalFindOne = User.findOne;
     originalFindOneAndUpdate = User.findOneAndUpdate;
+    originalDeleteMany = Session.deleteMany;
+    Session.deleteMany = async () => ({ deletedCount: 1 });
     sentEmails = [];
 
     // Intercept email sending to avoid real network calls
@@ -58,6 +62,7 @@ describe("Password Reset - Controller Flow & Security", () => {
   afterEach(() => {
     User.findOne = originalFindOne;
     User.findOneAndUpdate = originalFindOneAndUpdate;
+    Session.deleteMany = originalDeleteMany;
     emailUtil.resetTransporter();
   });
 
