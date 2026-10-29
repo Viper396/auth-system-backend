@@ -1,6 +1,9 @@
 const express = require("express");
 const {
-  authLimiter,
+  loginLimiter,
+  signupLimiter,
+  refreshLimiter,
+  forgotPasswordLimiter,
   resetPasswordLimiter,
 } = require("../middleware/rateLimit.middleware");
 const {
@@ -24,24 +27,24 @@ const {
 
 const router = express.Router();
 
-router.post("/signup", authLimiter, signupValidation, validate, signup);
-router.post("/login", authLimiter, loginValidation, validate, login);
-router.post("/refresh", refresh);
+router.post("/signup", signupLimiter, signupValidation, validate, signup);
+router.post("/login", loginLimiter, loginValidation, validate, login);
+router.post("/refresh", refreshLimiter, refresh);
 router.post("/logout", logout);
 router.post("/logout-all", authenticate, logoutAll);
 
 // Password reset routes
 router.post(
   "/forgot-password",
-  resetPasswordLimiter,
+  forgotPasswordLimiter,
   forgotPasswordValidation,
   validate,
   forgotPassword,
 );
-router.get("/reset-password/:token", authLimiter, verifyResetToken);
+router.get("/reset-password/:token", resetPasswordLimiter, verifyResetToken);
 router.post(
   "/reset-password/:token",
-  authLimiter,
+  resetPasswordLimiter,
   resetPasswordValidation,
   validate,
   resetPassword,

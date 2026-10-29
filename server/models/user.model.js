@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+const config = require("../config/env");
 
 const userSchema = new mongoose.Schema(
   {
@@ -51,11 +52,14 @@ userSchema.virtual("isLocked").get(function () {
 });
 
 userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) return next();
+  if (!this.isModified("password")) {
+    if (typeof next === "function") return next();
+    return;
+  }
 
   const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
-  next();
+  if (typeof next === "function") next();
 });
 
 userSchema.methods.comparePassword = async function (candidatePassword) {
@@ -72,7 +76,8 @@ userSchema.methods.incLoginAttempts = async function () {
 
   const updates = { $inc: { loginAttempts: 1 } };
   const maxAttempts = 5;
-  const lockTime = 2 * 60 * 60 * 1000;
+  const lockMinutes = config.ACCOUNT_LOCKOUT_MINUTES || 15;
+  const lockTime = lockMinutes * 60 * 1000;
 
   if (this.loginAttempts + 1 >= maxAttempts && !this.isLocked) {
     updates.$set = { lockUntil: Date.now() + lockTime };

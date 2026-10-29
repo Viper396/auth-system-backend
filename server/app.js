@@ -8,6 +8,11 @@ const { generalLimiter } = require("./middleware/rateLimit.middleware");
 
 const app = express();
 
+// Trust reverse proxy (e.g. Nginx, Cloudflare, load balancers) when configured or in production
+if (config.TRUST_PROXY) {
+  app.set("trust proxy", 1);
+}
+
 // Security headers
 app.use(helmet());
 

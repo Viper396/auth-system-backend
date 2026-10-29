@@ -82,9 +82,9 @@ exports.login = async (req, res) => {
       // Check if this failed attempt locked the account
       const updatedUser = await User.findById(user._id);
       if (updatedUser.isLocked) {
+        const lockMinutes = config.ACCOUNT_LOCKOUT_MINUTES || 15;
         return res.status(423).json({
-          message:
-            "Account locked due to too many failed login attempts. Try again in 2 hours.",
+          message: `Account locked due to too many failed login attempts. Try again in ${lockMinutes} minutes.`,
         });
       }
 

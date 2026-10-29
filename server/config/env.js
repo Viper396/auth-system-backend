@@ -243,6 +243,13 @@ function validateConfig(env = process.env) {
     RESET_TOKEN_EXPIRE_MINUTES: env.RESET_TOKEN_EXPIRE_MINUTES
       ? parseInt(env.RESET_TOKEN_EXPIRE_MINUTES, 10)
       : 15,
+    ACCOUNT_LOCKOUT_MINUTES: env.ACCOUNT_LOCKOUT_MINUTES
+      ? Math.max(1, Math.min(120, parseInt(env.ACCOUNT_LOCKOUT_MINUTES, 10) || 15))
+      : 15,
+    TRUST_PROXY:
+      env.TRUST_PROXY === "true" ||
+      env.TRUST_PROXY === "1" ||
+      nodeEnv === "production",
   });
 }
 
